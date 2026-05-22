@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Profile Sketch</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0a0a0f;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: 'Courier New', monospace;
+      color: #ccc;
+    }
+    #loading { font-size: 1rem; color: #555; letter-spacing: 0.2em; }
+    #error { font-size: 0.9rem; color: #e55; display: none; text-align: center; padding: 1rem; }
+    canvas { display: block; }
+    #hint { margin-top: 0.75rem; font-size: 0.7rem; color: #444; letter-spacing: 0.1em; }
+  </style>
+</head>
+<body>
+  <div id="loading">loading data&hellip;</div>
+  <div id="error"></div>
+  <div id="hint"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.4/p5.min.js"></script>
+  <script>
+    const DATA_URL = 'https://microsoftedge.github.io/Demos/json-dummy-data/64KB.json';
+
+    function getIndex() {
+      const raw = new URLSearchParams(window.location.search).get('index');
+      const n = parseInt(raw, 10);
+      return isNaN(n) ? 0 : n;
+    }
+
+    function eyeColorToHex(name) {
+      const map = {
+        blue: '#4a9eff', brown: '#a0522d', green: '#3cb371',
+        hazel: '#b8860b', grey: '#90a0b0', gray: '#90a0b0',
+        black: '#334455', amber: '#ffbf00',
+      };
+      return map[(name || '').toLowerCase()] || '#88aacc';
+    }
+
+    function parseBalance(raw) {
+      if (typeof raw === 'number') return raw;
+      return parseFloat(String(raw).replace(/[^0-9.-]/g, '')) || 0;
+    }
+
+    let person = null;
+
+    fetch(DATA_URL)
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then(data => {
+        const arr = Array.isArray(data) ? data : (data.items || data.data || []);
+        const idx = getIndex();
+        if (idx < 0 || idx >= arr.length) {
+          throw new Error(`Index ${idx} out of range (0–${arr.length - 1})`);
+        }
+        person = arr[idx];
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('hint').textContent =
+          `?index=${idx}   •   ${arr.length} items total`;
+        new p5(sketch);
+      })
+      .catch(err => {
+        document.getElementById('loading').style.display = 'none';
+        const el = document.getElementById('error');
+        el.style.display = 'block';
+        el.textContent = 'Error: ' + err.message;
+      });
+
+    function sketch(p) {
+      const W = 640, H = 640;
+      const accent = eyeColorToHex(person.eyeColor);
+      const tags    = Array.isArray(person.tags) ? person.tags : [];
+      const friends = Array.isArray(person.friends) ? person.friends.slice(0, 8) : [];
+      const balance = parseBalance(person.balance);
+      const MAX_BALANCE = 4000;
+
+      const tagNodes = tags.map((t, i) => ({
+        label: t,
+        angle: (Math.PI * 2) * (i / tags.length),
+        orbit: 160 + (i % 3) * 28,
+        speed: 0.004 + i * 0.0007,
+      }));
+
+      const friendNodes = friends.map((f, i) => ({
+        label: (f.name || '').split(' ')[0] || '?',
+        angle: (Math.PI * 2) * (i / friends.length) + 0.3,
+        orbit: 265 + (i % 2) * 22,
+        speed: 0.0015 + i * 0.0003,
+      }));
+
+      const stars = [];
+
+      p.setup = () => {
+        const cnv = p.createCanvas(W, H);
+        cnv.parent(document.body);
+        p.textFont('Courier New');
+        p.smooth();
+        for (let i = 0; i < 120; i++) {
+          stars.push({
+            x: p.random(-W / 2, W / 2),
+            y: p.random(-H / 2, H / 2),
+            r: p.random(0.5, 2),
+            bright: p.random(60, 180),
+          });
+        }
+      };
+
+      p.draw = () => {
+        p.background(10, 10, 15);
+        p.translate(W / 2, H / 2);
+        drawStars();
+        drawOrbitTrails();
+        drawBalanceArc();
+        drawTagNodes();
+        drawFriendNodes();
+        drawPulse();
+        drawCore();
+        drawLabels();
+      };
+
+      function drawStars() {
+        p.noStroke();
+        stars.forEach(s => {
+          const flicker = s.bright + p.sin(p.frameCount * 0.04 + s.x) * 20;
+          p.fill(flicker);
+          p.circle(s.x, s.y, s.r);
+        });
+      }
+
+      function drawOrbitTrails() {
+        const ac = p.color(accent);
+        tagNodes.forEach(n => {
+          p.noFill();
+          p.stroke(p.red(ac), p.green(ac), p.blue(ac), 22);
+          p.strokeWeight(1);
+          p.circle(0, 0, n.orbit * 2);
+        });
+      }
+
+      function drawBalanceArc() {
+        const ratio = Math.min(balance / MAX_BALANCE, 1);
+        const sweep = p.TWO_PI * ratio;
+        p.noFill();
+        p.stroke(40, 40, 55);
+        p.strokeWeight(4);
+        p.arc(0, 0, 230, 230, -p.HALF_PI, -p.HALF_PI + p.TWO_PI);
+        const ac = p.color(accent);
+        p.stroke(p.red(ac), p.green(ac), p.blue(ac), 200);
+        p.strokeWeight(4);
+        if (sweep > 0.01) {
+          p.arc(0, 0, 230, 230, -p.HALF_PI, -p.HALF_PI + sweep);
+        }
+        p.noStroke();
+        p.fill(p.red(ac), p.green(ac), p.blue(ac), 180);
+        p.textSize(11);
+        p.textAlign(p.CENTER, p.CENTER);
+        p.text(String(person.balance || ''), 0, 126);
+      }
+
+      function nodePos(n) {
+        const a = n.angle + p.frameCount * n.speed;
+        return { x: p.cos(a) * n.orbit, y: p.sin(a) * n.orbit };
+      }
+
+      function drawTagNodes() {
+        const ac = p.color(accent);
+        tagNodes.forEach(n => {
+          const { x, y } = nodePos(n);
+          p.stroke(p.red(ac), p.green(ac), p.blue(ac), 50);
+          p.strokeWeight(0.5);
+          p.line(0, 0, x, y);
+          p.fill(p.red(ac), p.green(ac), p.blue(ac), 200);
+          p.noStroke();
+          p.circle(x, y, 8);
+          p.fill(220);
+          p.textSize(9);
+          p.textAlign(p.CENTER, p.CENTER);
+          p.text(n.label, x, y - 11);
+        });
+      }
+
+      function drawFriendNodes() {
+        const ac = p.color(accent);
+        friendNodes.forEach(n => {
+          const { x, y } = nodePos(n);
+          p.stroke(p.red(ac), p.green(ac), p.blue(ac), 40);
+          p.strokeWeight(0.5);
+          p.line(0, 0, x, y);
+          p.noFill();
+          p.stroke(p.red(ac), p.green(ac), p.blue(ac), 160);
+          p.strokeWeight(1.5);
+          p.circle(x, y, 14);
+          p.fill(20, 20, 30);
+          p.noStroke();
+          p.circle(x, y, 11);
+          p.fill(200);
+          p.textSize(8);
+          p.textAlign(p.CENTER, p.CENTER);
+          p.text(n.label[0].toUpperCase(), x, y);
+          p.fill(160);
+          p.textSize(8);
+          p.text(n.label, x, y + 12);
+        });
+      }
+
+      function drawPulse() {
+        const r = 78 + p.sin(p.frameCount * 0.025) * 6;
+        const ac = p.color(accent);
+        for (let i = 3; i >= 0; i--) {
+          p.noFill();
+          p.stroke(p.red(ac), p.green(ac), p.blue(ac), (4 - i) * 12);
+          p.strokeWeight(1);
+          p.circle(0, 0, r + i * 14);
+        }
+      }
+
+      function drawCore() {
+        const ac = p.color(accent);
+        p.noFill();
+        p.stroke(p.red(ac), p.green(ac), p.blue(ac), 180);
+        p.strokeWeight(1.5);
+        p.circle(0, 0, 78);
+        p.fill(18, 18, 26);
+        p.noStroke();
+        p.circle(0, 0, 74);
+        p.fill(ac);
+        p.circle(0, 0, 10);
+      }
+
+      function drawLabels() {
+        const ac = p.color(accent);
+        p.textAlign(p.CENTER, p.CENTER);
+        p.noStroke();
+
+        p.fill(240);
+        p.textSize(17);
+        p.text(person.name || 'Unknown', 0, -H / 2 + 32);
+
+        if (person.age != null) {
+          p.fill(p.red(ac), p.green(ac), p.blue(ac), 160);
+          p.rect(-28, -H / 2 + 50, 56, 20, 4);
+          p.fill(240);
+          p.textSize(10);
+          p.text(`age ${person.age}`, 0, -H / 2 + 60);
+        }
+
+        if (person.company) {
+          p.fill(140);
+          p.textSize(10);
+          p.text(person.company, 0, -H / 2 + 80);
+        }
+
+        if (person.latitude != null && person.longitude != null) {
+          p.fill(90);
+          p.textSize(9);
+          p.text(
+            `${(+person.latitude).toFixed(3)}°  ${(+person.longitude).toFixed(3)}°`,
+            0, H / 2 - 42
+          );
+        }
+
+        if (person.about) {
+          p.fill(70);
+          p.textSize(8);
+          const excerpt = person.about.length > 80
+            ? person.about.slice(0, 80) + '…'
+            : person.about;
+          p.text(excerpt, 0, H / 2 - 22, W - 60, 30);
+        }
+      }
+    }
+  </script>
+</body>
+</html>
